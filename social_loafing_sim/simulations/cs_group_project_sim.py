@@ -8,13 +8,6 @@ from typing import Any
 
 import yaml
 
-# Allow running this script without installing the local Concordia package.
-# `thesis_testing/concordia/` contains the importable `concordia/` package.
-_REPO_ROOT = Path(__file__).resolve().parents[2]
-_LOCAL_CONCORDIA_PARENT = _REPO_ROOT / "concordia"
-if _LOCAL_CONCORDIA_PARENT.exists():
-    sys.path.insert(0, str(_LOCAL_CONCORDIA_PARENT))
-
 from concordia.prefabs import entity as entity_prefabs
 from concordia.prefabs import game_master as game_master_prefabs
 from concordia.prefabs.simulation import generic as simulation

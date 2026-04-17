@@ -12,11 +12,6 @@ from threading import Lock
 
 from tqdm import tqdm
 
-_REPO_ROOT = Path(__file__).resolve().parents[2]
-_LOCAL_CONCORDIA_PARENT = _REPO_ROOT / "concordia"
-if _LOCAL_CONCORDIA_PARENT.exists():
-    sys.path.insert(0, str(_LOCAL_CONCORDIA_PARENT))
-
 from cs_group_project_sim import (
     load_trait_pool,
     sample_profiles,
