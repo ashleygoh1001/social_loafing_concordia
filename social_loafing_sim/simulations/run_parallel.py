@@ -77,6 +77,19 @@ def serialize_log(log) -> dict:
 
     return data
 
+def score_social_loafing(serialized: dict, profiles: list[dict]) -> dict:
+    scores = {}
+    entries_by_entity = serialized.get("entries_by_entity", {})
+    
+    for name, entries in entries_by_entity.items():
+        n_actions = len(entries)
+        # Count how many actions were substantive vs passive
+        # (you'll need to inspect what your log entries look like first)
+        scores[name] = {
+            "n_actions": n_actions,
+        }
+    
+    return scores
 
 def run_single_trial(
     trial_id: int,
@@ -100,13 +113,24 @@ def run_single_trial(
             max_steps=max_steps,
         )
         results = sim.play()
+        serialized = serialize_log(results)
+
+        # Score loafing per agent
+        loafing_scores = {}
+        entries_by_entity = serialized.get("entries_by_entity", {})
+        for agent_name, entries in entries_by_entity.items():
+            loafing_scores[agent_name] = rate_loafing_with_llm(
+                model, agent_name, entries
+            )
 
         return {
             "trial_id": trial_id,
             "seed": seed,
             "status": "success",
             "profiles": [p["profile_id"] for p in sampled_profiles],
-            "results": serialize_log(results),
+            "profile_details": sampled_profiles,
+            "results": serialized,
+            "loafing_scores": loafing_scores,
         }
 
     except Exception as e:

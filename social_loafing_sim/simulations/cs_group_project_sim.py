@@ -192,6 +192,25 @@ def build_premise(sampled_profiles: list[dict[str, Any]]) -> str:
 
     return "\n".join(intro)
 
+def rate_loafing_with_llm(model, agent_name: str, entries: list) -> dict:
+    transcript = "\n".join(str(e) for e in entries)
+    prompt = f"""You are evaluating social loafing in a CS group project simulation.
+
+Agent: {agent_name}
+Their actions/statements during the simulation:
+{transcript}
+
+Rate this agent on the following (each 1-5, where 5 = maximum loafing):
+1. Task avoidance (did they avoid taking on work?)
+2. Free riding (did they let others do the heavy lifting?)
+3. Disengagement (did they go silent or contribute minimally?)
+
+Reply as JSON: {{"task_avoidance": int, "free_riding": int, "disengagement": int, "reasoning": str}}"""
+
+    raw = model.sample_text(prompt)
+    import json
+    return json.loads(raw)
+
 
 def print_sampled_team(sampled_profiles: list[dict[str, Any]]) -> None:
     print("\n=== SAMPLED TEAM ===")
