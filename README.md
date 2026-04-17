@@ -12,7 +12,7 @@
 The trait pool will be outputted into `./configs/trait_pool.yaml`
 
 ## 3. Run the model
-You can change the --n_trials (number of trials;default is 100), --n_agents (number of agents; default is 5), --max_steps (max steps; default is 20), --max_workers (max workers; default is 8), --base_seed (base seed; default is 42), and --output (output file; default is results/simulation_results.jsonl)
+You can change the --n_trials (number of trials; default is 100), --n_agents (number of agents; default is 5), --max_steps (max steps; default is 20), --max_workers (max workers; default is 8), --base_seed (base seed; default is 42), and --output (output file; default is results/simulation_results.jsonl)
 ```
 python simulations/run_parallel.py \
   --n_trials 10 \
