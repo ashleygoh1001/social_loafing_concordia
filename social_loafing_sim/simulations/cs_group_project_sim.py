@@ -8,14 +8,18 @@ from typing import Any
 
 import yaml
 
+# Allow running this script without installing the local Concordia package.
+# `thesis_testing/concordia/` contains the importable `concordia/` package.
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+_LOCAL_CONCORDIA_PARENT = _REPO_ROOT / "concordia"
+if _LOCAL_CONCORDIA_PARENT.exists():
+    sys.path.insert(0, str(_LOCAL_CONCORDIA_PARENT))
+
 from concordia.prefabs import entity as entity_prefabs
 from concordia.prefabs import game_master as game_master_prefabs
 from concordia.prefabs.simulation import generic as simulation
 from concordia.typing import prefab as prefab_lib
 from concordia.utils import helper_functions
-
-import os
-from sentence_transformers import SentenceTransformer
 
 
 TRAIT_POOL_PATH = (
@@ -36,43 +40,6 @@ def sample_profiles(
 ) -> list[dict[str, Any]]:
     rng = random.Random(seed)
     return rng.sample(profiles, n_agents)
-
-
-def derive_behavioral_tags(profile: dict[str, Any]) -> list[str]:
-    tags: list[str] = []
-    b5 = profile["big_five"]
-
-    if (
-        b5["conscientiousness"] == "low"
-        and profile["group_work_preference"] == "low"
-    ):
-        tags.append("higher risk of disengaging from coordination")
-
-    if (
-        b5["conscientiousness"] == "high"
-        and profile["skill_level"] in {"medium", "high"}
-    ):
-        tags.append("reliable at completing assigned work")
-
-    if (
-        b5["extraversion"] == "high"
-        and profile["winning_orientation"] == "high"
-    ):
-        tags.append("likely to dominate discussion")
-
-    if b5["agreeableness"] == "high":
-        tags.append("tries to preserve group harmony")
-
-    if b5["neuroticism"] == "high":
-        tags.append("more reactive under time pressure")
-
-    if (
-        b5["openness"] == "high"
-        and profile["skill_level"] in {"medium", "high"}
-    ):
-        tags.append("more willing to propose novel technical ideas")
-
-    return tags
 
 
 def profile_to_goal(profile: dict[str, Any]) -> str:
@@ -113,7 +80,7 @@ def profile_to_goal(profile: dict[str, Any]) -> str:
     return " ".join(parts)
 
 
-def profile_to_context(profile):
+def profile_to_context(profile: dict[str, Any]) -> str:
     b5 = profile["big_five"]
     return (
         f"You are a student in a 5-person CS group project. "
@@ -141,7 +108,6 @@ def build_instances(sampled_profiles: list[dict[str, Any]]) -> list[prefab_lib.I
 
     for i, profile in enumerate(sampled_profiles):
         name = make_agent_name(i)
-
         instances.append(
             prefab_lib.InstanceConfig(
                 prefab="basic_with_plan__Entity",
@@ -191,25 +157,6 @@ def build_premise(sampled_profiles: list[dict[str, Any]]) -> str:
         )
 
     return "\n".join(intro)
-
-def rate_loafing_with_llm(model, agent_name: str, entries: list) -> dict:
-    transcript = "\n".join(str(e) for e in entries)
-    prompt = f"""You are evaluating social loafing in a CS group project simulation.
-
-Agent: {agent_name}
-Their actions/statements during the simulation:
-{transcript}
-
-Rate this agent on the following (each 1-5, where 5 = maximum loafing):
-1. Task avoidance (did they avoid taking on work?)
-2. Free riding (did they let others do the heavy lifting?)
-3. Disengagement (did they go silent or contribute minimally?)
-
-Reply as JSON: {{"task_avoidance": int, "free_riding": int, "disengagement": int, "reasoning": str}}"""
-
-    raw = model.sample_text(prompt)
-    import json
-    return json.loads(raw)
 
 
 def print_sampled_team(sampled_profiles: list[dict[str, Any]]) -> None:

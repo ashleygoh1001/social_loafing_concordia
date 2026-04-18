@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import time
@@ -32,41 +33,37 @@ class SafeGeminiModel:
         self.max_retries = max_retries
 
     def _extract_text(self, response: Any) -> str:
+        # Fast path: response.text
         text = getattr(response, "text", None)
         if isinstance(text, str) and text.strip():
             return text.strip()
 
-        candidates = getattr(response, "candidates", None)
+        candidates = getattr(response, "candidates", None) or []
         if not candidates:
             raise RuntimeError(f"Gemini returned no candidates: {response!r}")
+
+        # Check for MAX_TOKENS before trying to collect parts
+        for cand in candidates:
+            if "MAX_TOKENS" in str(getattr(cand, "finish_reason", "")):
+                raise RuntimeError(
+                    "Gemini hit MAX_TOKENS with no output — "
+                    "thinking likely consumed entire token budget. "
+                    f"Response: {response!r}"
+                )
 
         texts: list[str] = []
         for cand in candidates:
             content = getattr(cand, "content", None)
-            if not content:
-                continue
-            parts = getattr(content, "parts", None)
+            parts = getattr(content, "parts", None) if content else None
             if not parts:
                 continue
             for part in parts:
-                if part is None:
-                    continue
                 part_text = getattr(part, "text", None)
                 if isinstance(part_text, str) and part_text.strip():
                     texts.append(part_text.strip())
 
         if texts:
             return "\n".join(texts)
-
-        # Check if we hit MAX_TOKENS with no output (thinking ate the budget)
-        for cand in (candidates or []):
-            finish_reason = str(getattr(cand, "finish_reason", ""))
-            if "MAX_TOKENS" in finish_reason:
-                raise RuntimeError(
-                    f"Gemini hit MAX_TOKENS with no output — "
-                    f"thinking likely consumed entire token budget. "
-                    f"Response: {response!r}"
-                )
 
         raise RuntimeError(f"Gemini returned no usable text: {response!r}")
 
@@ -81,21 +78,34 @@ class SafeGeminiModel:
     @staticmethod
     def _extract_json_from_text(text: str) -> str:
         """
-        Concordia expects sample_text to return a bare JSON object when
-        asked for action specs. Gemini sometimes prepends narrative prose.
-        If the text contains an embedded JSON object, extract just that.
+        Concordia expects sample_text to return a bare JSON object for action
+        specs. Handles two failure modes from Gemini:
+          1. Narrative prose wrapping a JSON object — extract just the object.
+          2. The entire response is a JSON-encoded string (i.e. Gemini wrapped
+             the JSON object in outer quotes, producing "{\"key\": \"val\"}").
+             Decode the outer string layer first, then extract the object.
         """
-        # Try to find a JSON object anywhere in the text
+        text = text.strip()
+
+        # Case 2: outer-quoted JSON string — decode one layer, then fall through
+        if text.startswith('"') and text.endswith('"'):
+            try:
+                inner = json.loads(text)   # produces the raw JSON object string
+                if isinstance(inner, str):
+                    text = inner.strip()
+            except Exception:
+                pass
+
+        # Case 1 (and Case 2 after unwrapping): find embedded JSON object
         match = re.search(r'\{.*\}', text, re.DOTALL)
         if match:
             candidate = match.group(0).strip()
             try:
-                import json
-                json.loads(candidate)  # validate it's real JSON
+                json.loads(candidate)  # validate
                 return candidate
             except Exception:
                 pass
-        # No valid embedded JSON — return as-is and let caller handle it
+
         return text
 
     def sample_text(
@@ -111,11 +121,11 @@ class SafeGeminiModel:
         top_p=None,
         **kwargs: Any,
     ) -> str:
+        # Unused by Gemini API
         del terminators, timeout, seed, top_k, kwargs
 
         temp = self.temperature if temperature is None else temperature
         # Always request enough tokens so thinking doesn't crowd out output.
-        # Concordia action specs are small JSON blobs; 2048 is plenty of headroom.
         out_tokens = max(self.max_output_tokens if max_tokens is None else max_tokens, 2048)
 
         config: types.GenerateContentConfigDict = {
@@ -147,7 +157,7 @@ class SafeGeminiModel:
                     print(f"[sample_text] attempt {attempt} failed: {e}. Retrying in {wait}s...")
                     time.sleep(wait)
 
-        raise RuntimeError(f"Gemini text generation failed: {last_error}")
+        raise RuntimeError(f"Gemini text generation failed after {self.max_retries} attempts: {last_error}")
 
     def sample_choice(
         self,
@@ -156,6 +166,8 @@ class SafeGeminiModel:
         *,
         seed: int | None = None,
     ) -> tuple[int, str, dict]:
+        del seed  # not used by Gemini API
+
         forced_prompt = (
             prompt
             + "\n\nChoose exactly one option.\n"
@@ -182,15 +194,17 @@ class SafeGeminiModel:
                         content = getattr(cand, "content", None)
                         parts = getattr(content, "parts", None) if content else None
                         if parts:
-                            collected = [getattr(p, "text", None) for p in parts if p]
-                            collected = [t for t in collected if t]
-                            if collected:
-                                text = "\n".join(collected).strip()
+                            collected = [
+                                getattr(p, "text", None)
+                                for p in parts if p
+                            ]
+                            text = "\n".join(t for t in collected if t).strip()
+                            if text:
                                 break
 
                 m = re.search(r"\d+", text)
                 if not m:
-                    raise ValueError(f"Could not parse choice from: {text!r}")
+                    raise ValueError(f"Could not parse choice index from: {text!r}")
 
                 idx = int(m.group(0))
                 if not 0 <= idx < len(responses):
