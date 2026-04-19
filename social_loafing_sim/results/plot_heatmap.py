@@ -5,6 +5,7 @@ Generate a heatmap of perceived loafing scores from the scores CSV.
 
 Usage:
     python ./results/plot_heatmap.py --input ./results/scores_100.csv --output heatmap_perceived_loafing_control.png --metric perceived_loafing
+    python ./results/plot_heatmap.py --input ./results/scores_indiv_contrib.csv --output heatmap_perceived_loafing_indiv_contrib.png --metric perceived_loafing
 """
 
 from __future__ import annotations
