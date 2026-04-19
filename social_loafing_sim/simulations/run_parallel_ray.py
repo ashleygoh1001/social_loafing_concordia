@@ -237,8 +237,13 @@ def run_trial_ray(
     max_steps: int,
     profiles_path_str: str,
     embedder_actor: ray.actor.ActorHandle,
+    condition: str = "control",
 ) -> dict:
-    """Execute one simulation trial inside a Ray worker."""
+    """Execute one simulation trial inside a Ray worker.
+
+    condition: "control" uses cs_group_project_sim,
+               "intervention" uses cs_group_project_sim_intervention.
+    """
     # Re-add repo path in worker process
     repo_root = Path(profiles_path_str).resolve().parents[3]
     concordia_parent = repo_root / "concordia"
@@ -246,11 +251,16 @@ def run_trial_ray(
         sys.path.insert(0, str(concordia_parent))
 
     try:
-        from cs_group_project_sim import (
-            build_simulation,
-            load_trait_pool,
-            sample_profiles,
+        import importlib
+        sim_module = (
+            "cs_group_project_sim_intervention"
+            if condition == "intervention"
+            else "cs_group_project_sim"
         )
+        sim = importlib.import_module(sim_module)
+        build_simulation = sim.build_simulation
+        load_trait_pool = sim.load_trait_pool
+        sample_profiles = sim.sample_profiles
 
         profiles = load_trait_pool(Path(profiles_path_str))
         sampled_profiles = sample_profiles(profiles, n_agents, seed)
@@ -296,6 +306,7 @@ def run_trial_ray(
         return {
             "trial_id": trial_id,
             "seed": seed,
+            "condition": condition,
             "status": "success",
             "profiles": [p["profile_id"] for p in sampled_profiles],
             "timing": {
@@ -413,6 +424,11 @@ def main() -> None:
         "--embedder_replicas", type=int, default=1,
         help="Number of EmbedderActor replicas (one per node is usually fine).",
     )
+    parser.add_argument(
+        "--condition", type=str, default="control",
+        choices=["control", "intervention"],
+        help="'control' = base sim, 'intervention' = contribution tracking active.",
+    )
     args = parser.parse_args()
 
     # ------------------------------------------------------------------
@@ -488,6 +504,7 @@ def main() -> None:
             max_steps=args.max_steps,
             profiles_path_str=profiles_path_str,
             embedder_actor=actor,
+            condition=args.condition,
         )
         in_flight[ref] = i
         return True
