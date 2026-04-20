@@ -72,7 +72,7 @@ INTERVENTION_NORM = (
     "Students who contribute more receive public recognition; those who contribute less "
     "are identifiable to the whole group. The dashboard is updated after every meeting."
 )
-
+'''
 INTERVENTION_GM = (
     "INTERVENTION ACTIVE: Individual contribution tracking and publicization.\n"
     "The course staff tracks and publicizes each student's individual contributions "
@@ -83,6 +83,26 @@ INTERVENTION_GM = (
     "are being recorded and will be seen by everyone. "
     "Students who coast or disengage should feel the social pressure of visibility; "
     "students who contribute should feel personal recognition."
+)
+'''
+INTERVENTION_GM = (
+    "INTERVENTION ACTIVE: Task-visibility system (performance targets, "
+    "communication procedures, problem-solving protocol).\n"
+    "Every subtask has a named owner, explicit acceptance criteria, and a "
+    "due date on a shared board visible to all team members and the "
+    "instructor. Members are required to post standup updates at every "
+    "meeting and once daily asynchronously. When a member is blocked, "
+    "they must declare it and follow the escalation protocol rather than "
+    "silently stalling.\n"
+    "When narrating events, reflect that task progress — and task absence — "
+    "is structurally visible: members know whose subtasks are on track and "
+    "whose are not, because the board and standups make this explicit. "
+    "Students who fall behind should feel the weight of an expectation gap "
+    "that is plain to the group; students who meet their targets should feel "
+    "the clarity of knowing their contribution is unambiguous. "
+    "Narrate how the communication and problem-solving norms shape whether "
+    "blockers surface early or fester, and whether the team redistributes "
+    "work effectively or lets tasks slip silently."
 )
 
 
