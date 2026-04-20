@@ -59,6 +59,49 @@ TRAIT_POOL_PATH = (
 # ---------------------------------------------------------------------------
 
 INTERVENTION_SHORT = (
+    "Your team is using an online peer evaluation system throughout this project. "
+    "You have already completed an early peer evaluation in week 5, and two more "
+    "evaluation rounds are scheduled — one at week 8 and one at the end of week 10. "
+    "Each round asks you to rate every teammate on: quality of work, quantity of "
+    "contribution, reliability and meeting deadlines, collaboration and communication, "
+    "and initiative. These ratings are shared with the course staff and influence "
+    "individual grades. You are aware your teammates are currently evaluating you, "
+    "and you are evaluating them."
+)
+
+INTERVENTION_NORM = (
+    "The course staff has implemented a structured online peer evaluation system "
+    "for this project. Evaluations occur at three points: an early check-in at week 5 "
+    "(already completed), a mid-project evaluation at week 8, and a final evaluation "
+    "at week 10. "
+    "In each round, every student rates all four teammates on five specific criteria "
+    "using a 5-point scale: (1) quality of work produced, (2) quantity of contribution "
+    "relative to ability, (3) reliability — meeting deadlines and following through on "
+    "commitments, (4) collaboration and communication with the team, and "
+    "(5) initiative — proactively identifying and addressing problems. "
+    "Ratings are submitted through an online platform, are anonymous to teammates but "
+    "visible to the instructor, and contribute directly to each student's individual "
+    "project grade. Students who received low scores in the week 5 evaluation have "
+    "been privately notified and are aware they need to improve before week 8."
+)
+
+INTERVENTION_GM = (
+    "INTERVENTION ACTIVE: Structured online peer evaluation system.\n"
+    "Students are subject to three rounds of peer evaluation: week 5 (completed), "
+    "week 8 (upcoming), and week 10 (final). Each round rates teammates on five "
+    "criteria — quality of work, quantity of contribution, reliability, collaboration "
+    "and communication, and initiative — on a 5-point scale. Ratings are anonymous "
+    "to peers but visible to the instructor and affect individual grades.\n"
+    "When narrating events, reflect that students are aware they are being evaluated "
+    "by their teammates on these specific criteria, and that the week 8 evaluation is "
+    "approaching. Students who underperformed in week 5 feel pressure to demonstrate "
+    "improvement. Students who rated poorly in week 5 may be more guarded or "
+    "defensive. Students with high week 5 ratings may feel motivated to maintain "
+    "their standing. The specific criteria shape what students pay attention to and "
+    "how they present their contributions to the group."
+)
+'''
+INTERVENTION_SHORT = (
     "Your individual contributions to this project are being closely tracked "
     "and will be publicized to your team and the course staff. "
     "What you specifically do — or do not do — will be visible to everyone."
@@ -72,7 +115,7 @@ INTERVENTION_NORM = (
     "Students who contribute more receive public recognition; those who contribute less "
     "are identifiable to the whole group. The dashboard is updated after every meeting."
 )
-'''
+
 INTERVENTION_GM = (
     "INTERVENTION ACTIVE: Individual contribution tracking and publicization.\n"
     "The course staff tracks and publicizes each student's individual contributions "
@@ -84,7 +127,7 @@ INTERVENTION_GM = (
     "Students who coast or disengage should feel the social pressure of visibility; "
     "students who contribute should feel personal recognition."
 )
-'''
+
 INTERVENTION_GM = (
     "INTERVENTION ACTIVE: Task-visibility system (performance targets, "
     "communication procedures, problem-solving protocol).\n"
@@ -104,6 +147,7 @@ INTERVENTION_GM = (
     "blockers surface early or fester, and whether the team redistributes "
     "work effectively or lets tasks slip silently."
 )
+'''
 
 
 # ---------------------------------------------------------------------------
