@@ -288,11 +288,12 @@ def run_trial_ray(
 
     try:
         import importlib
-        sim_module = (
-            "cs_group_project_sim_intervention"
-            if condition == "intervention"
-            else "cs_group_project_sim"
-        )
+        if condition == "intervention":
+            sim_module = "cs_group_project_sim_intervention"
+        elif condition == "weeklylogs":
+            sim_module = "cs_group_project_sim_intervention_weeklylogs"
+        else:
+            sim_module = "cs_group_project_sim"
         sim = importlib.import_module(sim_module)
         build_simulation = sim.build_simulation
         load_trait_pool = sim.load_trait_pool
@@ -462,8 +463,8 @@ def main() -> None:
     )
     parser.add_argument(
         "--condition", type=str, default="control",
-        choices=["control", "intervention"],
-        help="'control' = base sim, 'intervention' = contribution tracking active.",
+        choices=["control", "intervention", "weeklylogs"],
+        help="'control' = base sim, 'intervention' = contribution tracking, 'weeklylogs' = weekly progress logs.",
     )
     args = parser.parse_args()
 

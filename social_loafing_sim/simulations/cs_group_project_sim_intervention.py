@@ -1,25 +1,29 @@
 """
-cs_group_project_sim_intervention.py
+cs_group_project_sim_intervention_weeklylogs.py
 
-Intervention condition: individual contributions are closely tracked and
-publicized so members have a greater sense of personal achievement.
+Intervention condition: structured weekly progress logs that each team
+member must contribute to, outlining project milestones, individual and
+group progress, and expected completion dates.
 
 The intervention is injected at three levels so it stays prevalent
 throughout the entire simulation:
 
 1. PREMISE  — the world description the game master sees from step 1.
-              States that a contribution-tracking system is active and
-              that each student's work is visible to the whole team and
-              the course staff.
+              Establishes that weekly logs exist, that the most recent
+              log (week 6) is already in existence with partial entries,
+              and that the week 7 log is due at the end of this meeting.
+              This makes the log a concrete, present artifact rather than
+              an abstract future obligation.
 
-2. AGENT GOAL — each agent's goal paragraph is prepended with a sentence
-                making salient that their individual contributions are
-                being recorded and will be publicized. This shapes every
-                planning and action decision the agent makes.
+2. AGENT GOAL — each agent's goal is prepended with the log requirement
+                so that every planning and action decision they make is
+                framed by the accountability the log creates.
 
 3. AGENT CONTEXT — the situational context each agent reasons from
-                   includes the tracking norm, so it is present in every
-                   step of their reasoning, not just initialisation.
+                   includes the log norm, the log structure, and the
+                   current week's log status on every step, so it is
+                   active throughout the entire simulation rather than
+                   only at initialisation.
 
 Everything else is identical to cs_group_project_sim.py so the two
 conditions are directly comparable.
@@ -55,99 +59,76 @@ TRAIT_POOL_PATH = (
 )
 
 # ---------------------------------------------------------------------------
-# Intervention text — single source of truth so it is consistent everywhere
+# Intervention text — single source of truth, consistent across all levels
 # ---------------------------------------------------------------------------
 
 INTERVENTION_SHORT = (
-    "Your team is using an online peer evaluation system throughout this project. "
-    "You have already completed an early peer evaluation in week 5, and two more "
-    "evaluation rounds are scheduled — one at week 8 and one at the end of week 10. "
-    "Each round asks you to rate every teammate on: quality of work, quantity of "
-    "contribution, reliability and meeting deadlines, collaboration and communication, "
-    "and initiative. These ratings are shared with the course staff and influence "
-    "individual grades. You are aware your teammates are currently evaluating you, "
-    "and you are evaluating them."
+    "Your team is required to submit a structured weekly progress log every week. "
+    "Each log records: (1) project milestones and whether they were met, "
+    "(2) each team member's individual progress and contributions that week, "
+    "and (3) expected completion dates for all outstanding tasks. "
+    "The week 7 log is due at the end of today's meeting and must include "
+    "your name alongside what you personally contributed this week. "
+    "Logs are reviewed by the course staff and are part of your grade."
 )
 
 INTERVENTION_NORM = (
-    "The course staff has implemented a structured online peer evaluation system "
-    "for this project. Evaluations occur at three points: an early check-in at week 5 "
-    "(already completed), a mid-project evaluation at week 8, and a final evaluation "
-    "at week 10. "
-    "In each round, every student rates all four teammates on five specific criteria "
-    "using a 5-point scale: (1) quality of work produced, (2) quantity of contribution "
-    "relative to ability, (3) reliability — meeting deadlines and following through on "
-    "commitments, (4) collaboration and communication with the team, and "
-    "(5) initiative — proactively identifying and addressing problems. "
-    "Ratings are submitted through an online platform, are anonymous to teammates but "
-    "visible to the instructor, and contribute directly to each student's individual "
-    "project grade. Students who received low scores in the week 5 evaluation have "
-    "been privately notified and are aware they need to improve before week 8."
+    "The course staff requires the team to maintain a shared weekly progress log "
+    "throughout the project. Every week, the team collectively fills in: "
+    "(1) Milestones — which planned milestones were reached this week and which were missed; "
+    "(2) Individual progress — a brief entry per team member describing what they "
+    "personally completed, what they are currently working on, and any blockers; "
+    "(3) Completion dates — updated expected delivery dates for each outstanding task. "
+    "Logs from weeks 1 through 6 are already on file with the course staff. "
+    "The week 6 log noted that architecture decisions were still pending and that "
+    "task assignments had not yet been formally agreed upon. "
+    "The week 7 log must be submitted by the end of today's meeting. "
+    "Incomplete or missing individual entries are flagged to the instructor "
+    "and reduce individual project grades."
 )
 
 INTERVENTION_GM = (
-    "INTERVENTION ACTIVE: Structured online peer evaluation system.\n"
-    "Students are subject to three rounds of peer evaluation: week 5 (completed), "
-    "week 8 (upcoming), and week 10 (final). Each round rates teammates on five "
-    "criteria — quality of work, quantity of contribution, reliability, collaboration "
-    "and communication, and initiative — on a 5-point scale. Ratings are anonymous "
-    "to peers but visible to the instructor and affect individual grades.\n"
-    "When narrating events, reflect that students are aware they are being evaluated "
-    "by their teammates on these specific criteria, and that the week 8 evaluation is "
-    "approaching. Students who underperformed in week 5 feel pressure to demonstrate "
-    "improvement. Students who rated poorly in week 5 may be more guarded or "
-    "defensive. Students with high week 5 ratings may feel motivated to maintain "
-    "their standing. The specific criteria shape what students pay attention to and "
-    "how they present their contributions to the group."
-)
-'''
-INTERVENTION_SHORT = (
-    "Your individual contributions to this project are being closely tracked "
-    "and will be publicized to your team and the course staff. "
-    "What you specifically do — or do not do — will be visible to everyone."
+    "INTERVENTION ACTIVE: Structured weekly progress log requirement.\n"
+    "The team must submit a weekly log covering milestones, individual member "
+    "progress, and expected completion dates. Logs for weeks 1-6 are already filed. "
+    "The week 7 log is due at the end of this meeting session.\n"
+    "The week 6 log recorded: architecture decisions still pending; task assignments "
+    "not yet formally agreed; Student contributions were uneven with some members "
+    "not submitting individual entries.\n"
+    "When narrating events, reflect that the log requirement creates concrete "
+    "accountability: students know they must be able to report what they personally "
+    "did this week. Students who have nothing to report are aware this will appear "
+    "as a blank entry next to their name in the week 7 log. Students who have "
+    "completed work have an incentive to make it visible in the log. "
+    "Discussions about task assignment, deadlines, and milestones should be shaped "
+    "by the fact that whatever is agreed must be written into the log today. "
+    "The log functions as a coordination device: decisions made in this meeting "
+    "become the milestone and completion-date entries that the team is held to "
+    "in next week's log."
 )
 
-INTERVENTION_NORM = (
-    "The course staff has introduced a contribution-tracking system for this project. "
-    "Every team member's individual contributions — commits, tasks completed, "
-    "participation in discussions, and overall effort — are recorded automatically "
-    "and displayed on a shared dashboard visible to all team members and the instructor. "
-    "Students who contribute more receive public recognition; those who contribute less "
-    "are identifiable to the whole group. The dashboard is updated after every meeting."
-)
+# The week 6 log as a concrete artifact agents can reference.
+# Including it in the premise grounds the intervention in prior history
+# rather than presenting it as an abstract future obligation.
+WEEK6_LOG = """
+--- WEEK 6 PROGRESS LOG (on file) ---
+Milestones this week:
+  - System requirements draft: MISSED (still in discussion)
+  - GitHub repository setup: COMPLETE
+  - Architecture decision: MISSED (pending team agreement)
 
-INTERVENTION_GM = (
-    "INTERVENTION ACTIVE: Individual contribution tracking and publicization.\n"
-    "The course staff tracks and publicizes each student's individual contributions "
-    "to the project (commits, tasks, participation, effort). "
-    "This information is visible to all team members and the instructor on a shared "
-    "dashboard updated after every meeting. "
-    "When narrating events, reflect that students are aware their individual efforts "
-    "are being recorded and will be seen by everyone. "
-    "Students who coast or disengage should feel the social pressure of visibility; "
-    "students who contribute should feel personal recognition."
-)
+Individual progress:
+  - [entries varied; some members submitted brief notes, others left blank]
 
-INTERVENTION_GM = (
-    "INTERVENTION ACTIVE: Task-visibility system (performance targets, "
-    "communication procedures, problem-solving protocol).\n"
-    "Every subtask has a named owner, explicit acceptance criteria, and a "
-    "due date on a shared board visible to all team members and the "
-    "instructor. Members are required to post standup updates at every "
-    "meeting and once daily asynchronously. When a member is blocked, "
-    "they must declare it and follow the escalation protocol rather than "
-    "silently stalling.\n"
-    "When narrating events, reflect that task progress — and task absence — "
-    "is structurally visible: members know whose subtasks are on track and "
-    "whose are not, because the board and standups make this explicit. "
-    "Students who fall behind should feel the weight of an expectation gap "
-    "that is plain to the group; students who meet their targets should feel "
-    "the clarity of knowing their contribution is unambiguous. "
-    "Narrate how the communication and problem-solving norms shape whether "
-    "blockers surface early or fester, and whether the team redistributes "
-    "work effectively or lets tasks slip silently."
-)
-'''
+Outstanding tasks and expected completion dates:
+  - Finalise architecture: target week 7
+  - Assign coding modules to team members: target week 7
+  - Set up CI/CD pipeline: target week 8
+  - Core feature implementation: target weeks 8-9
+  - Integration and bug fixing: target week 9
+  - Final demo preparation: target week 10
+--- END WEEK 6 LOG ---
+"""
 
 
 # ---------------------------------------------------------------------------
@@ -207,7 +188,8 @@ def derive_behavioral_tags(profile: dict[str, Any]) -> list[str]:
 
 
 def profile_to_goal(profile: dict[str, Any]) -> str:
-    # Intervention: prepend tracking salience to every agent's goal.
+    # Intervention: prepend the log requirement to every agent's goal so
+    # it shapes every planning and action decision they make.
     parts = [INTERVENTION_SHORT]
 
     parts.append("Help your team complete the CS group project successfully.")
@@ -249,8 +231,10 @@ def profile_to_goal(profile: dict[str, Any]) -> str:
 
 def profile_to_context(profile: dict[str, Any]) -> str:
     b5 = profile["big_five"]
-    # Intervention: append the tracking norm to the situational context so it
-    # is present in every step of the agent's reasoning.
+    # Intervention: append the log norm AND the week 6 log to the agent's
+    # situational context. Both are present on every step of reasoning,
+    # making the log a persistent feature of the agent's situation rather
+    # than a one-time observation they might forget.
     return (
         f"You are a student in a 5-person CS group project. "
         f"Traits: C={b5['conscientiousness']}, E={b5['extraversion']}, "
@@ -258,7 +242,8 @@ def profile_to_context(profile: dict[str, Any]) -> str:
         f"Group work preference={profile['group_work_preference']}. "
         f"Winning orientation={profile['winning_orientation']}. "
         f"Skill level={profile['skill_level']}. "
-        f"{INTERVENTION_NORM}"
+        f"{INTERVENTION_NORM} "
+        f"{WEEK6_LOG}"
     )
 
 
@@ -292,7 +277,8 @@ def build_instances(
             )
         )
 
-    # Game master — intervention injected via its instructions
+    # Game master — log intervention injected via GM instructions so the
+    # narrator enforces log-related consequences on every step it acts.
     instances.append(
         prefab_lib.InstanceConfig(
             prefab="generic__GameMaster",
@@ -300,8 +286,6 @@ def build_instances(
             params={
                 "name": "course_staff",
                 "acting_order": "random",
-                # The GM instructions field seeds the game master's reasoning
-                # with the intervention on every step it acts.
                 "instructions": INTERVENTION_GM,
             },
         )
@@ -318,11 +302,14 @@ def build_premise(sampled_profiles: list[dict[str, Any]]) -> str:
         "Team members differ in personality, motivation, technical ability, and comfort with collaboration.",
         "Social loafing, uneven task distribution, leadership struggles, and deadline stress may emerge over time.",
         "",
-        # Intervention: explicitly part of the world from step 0.
-        "INTERVENTION — CONTRIBUTION TRACKING SYSTEM ACTIVE:",
+        # Intervention: log requirement is part of the world from step 0,
+        # with the week 6 log as a concrete prior artifact.
+        "INTERVENTION — WEEKLY PROGRESS LOG REQUIREMENT:",
         INTERVENTION_NORM,
         "",
-        "The team is meeting after class to decide how to organize the project.",
+        WEEK6_LOG,
+        "",
+        "The team is meeting after class to fill in the week 7 log and organize the project.",
     ]
 
     for i, profile in enumerate(sampled_profiles):
@@ -340,7 +327,7 @@ def build_premise(sampled_profiles: list[dict[str, Any]]) -> str:
 
 
 def print_sampled_team(sampled_profiles: list[dict[str, Any]]) -> None:
-    print("\n=== SAMPLED TEAM (INTERVENTION CONDITION) ===")
+    print("\n=== SAMPLED TEAM (WEEKLY LOGS INTERVENTION) ===")
     for i, profile in enumerate(sampled_profiles):
         b5 = profile["big_five"]
         print(f"\n{make_agent_name(i)} ({profile['profile_id']})")
@@ -434,7 +421,7 @@ def main() -> None:
     else:
         results = sim.play()
 
-    print("\n=== SIMULATION COMPLETE (INTERVENTION) ===")
+    print("\n=== SIMULATION COMPLETE (WEEKLY LOGS INTERVENTION) ===")
     print(results)
 
 
