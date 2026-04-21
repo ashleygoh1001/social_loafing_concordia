@@ -81,25 +81,41 @@ class SafeGeminiModel:
     @staticmethod
     def _sanitize_action_spec(text: str) -> str:
         """
-        Repair unescaped double quotes inside the call_to_action value.
+        Repair the call_to_action value in a Concordia action spec JSON string.
 
-        Gemini sometimes generates action spec JSON where the call_to_action
-        narrative contains unescaped double quotes, e.g.:
-            {"call_to_action": "Marked as "High". What does Student_1 do?", ...}
+        Gemini sometimes produces invalid JSON because the call_to_action
+        narrative contains unescaped double quotes, already-escaped quotes
+        mixed with unescaped ones, or literal newlines/control characters.
+        All of these break json.loads.
 
-        We know the structure that always follows the value is:
-            ", "output_type"
-        so we can precisely target just the call_to_action content and
-        escape any bare " inside it without touching the rest of the JSON.
+        Strategy:
+          1. Locate the call_to_action value by finding the known prefix and
+             using rfind for the known suffix '", "output_type"' as the boundary.
+          2. Unescape any already-escaped quotes so we have a uniform plain string.
+          3. Strip control characters (newlines, tabs) that are illegal in JSON strings.
+          4. Re-escape everything cleanly from scratch.
         """
-        pattern = re.compile(
-            r'"call_to_action":\s*"(.*?)(?=",\s*"output_type")',
-            re.DOTALL,
-        )
-        def _fix(m: re.Match) -> str:
-            inner = re.sub(r'(?<!\\)"', '\\"', m.group(1))
-            return f'"call_to_action": "{inner}'
-        return pattern.sub(_fix, text)
+        prefix = '"call_to_action": "'
+        start_idx = text.find(prefix)
+        if start_idx == -1:
+            return text
+        value_start = start_idx + len(prefix)
+
+        boundary = '", "output_type"'
+        end_idx = text.rfind(boundary)
+        if end_idx == -1 or end_idx <= value_start:
+            return text
+
+        raw_value = text[value_start:end_idx]
+
+        # Unescape any already-escaped quotes for a uniform baseline
+        plain = raw_value.replace('\\"', '"')
+        # Strip control characters illegal in JSON strings
+        plain = plain.replace('\n', ' ').replace('\r', ' ').replace('\t', ' ')
+        # Re-escape backslashes then double quotes, cleanly
+        clean = plain.replace('\\', '\\\\').replace('"', '\\"')
+
+        return text[:value_start] + clean + text[end_idx:]
 
     @staticmethod
     def _extract_json_from_text(text: str) -> str:

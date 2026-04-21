@@ -100,6 +100,12 @@ class _GeminiModel:
                     texts.append(t.strip())
         if texts:
             return "\n".join(texts)
+        # Gemini safety filter: candidate present but empty content (no output tokens).
+        # Return a safe neutral fallback so Concordia can continue rather than crash.
+        for cand in candidates:
+            finish = str(getattr(cand, "finish_reason", "")).upper()
+            if finish in ("STOP", "SAFETY", "RECITATION", "OTHER", ""):
+                return "None."
         raise RuntimeError(f"Gemini returned no usable text: {response!r}")
 
     @staticmethod
@@ -110,15 +116,45 @@ class _GeminiModel:
         return text.strip()
 
     @staticmethod
+    def _sanitize_action_spec(text: str) -> str:
+        """Repair unescaped/mixed-escaped double quotes in call_to_action values."""
+        prefix = '"call_to_action": "'
+        start_idx = text.find(prefix)
+        if start_idx == -1:
+            return text
+        value_start = start_idx + len(prefix)
+        boundary = '", "output_type"'
+        end_idx = text.rfind(boundary)
+        if end_idx == -1 or end_idx <= value_start:
+            return text
+        raw_value = text[value_start:end_idx]
+        # Unescape any already-escaped quotes for a uniform baseline
+        plain = raw_value.replace('\\"', '"')
+        # Strip control characters illegal in JSON strings
+        plain = plain.replace('\n', ' ').replace('\r', ' ').replace('\t', ' ')
+        # Re-escape backslashes then double quotes cleanly
+        clean = plain.replace('\\', '\\\\').replace('"', '\\"')
+        return text[:value_start] + clean + text[end_idx:]
+
+    @staticmethod
     def _extract_json(text: str) -> str:
         m = re.search(r"\{.*\}", text, re.DOTALL)
-        if m:
-            candidate = m.group(0).strip()
-            try:
-                json.loads(candidate)
-                return candidate
-            except Exception:
-                pass
+        if not m:
+            return text
+        candidate = m.group(0).strip()
+        # Fast path: already valid
+        try:
+            json.loads(candidate)
+            return candidate
+        except Exception:
+            pass
+        # Repair path: fix unescaped quotes in call_to_action
+        try:
+            repaired = _GeminiModel._sanitize_action_spec(candidate)
+            json.loads(repaired)
+            return repaired
+        except Exception:
+            pass
         return text
 
     def _call(self, contents: str, config: dict) -> Any:
