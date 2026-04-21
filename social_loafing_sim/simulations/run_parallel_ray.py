@@ -1,27 +1,38 @@
-"""Run N simulation trials in parallel using Ray.
+"""
+run_parallel_ray.py
+-------------------
+Run all 100 simulation trials in parallel using Ray, for any condition.
+
+Each trial N uses group N from configs/simulation_groups.jsonl so every
+condition runs the exact same 100 pre-sampled teams. This makes results
+directly comparable across conditions without any sampling variability.
 
 Parallelism strategy
----------------------
-Trial level (Ray): each trial runs as a Ray remote task, so up to
-`max_concurrent` trials are in-flight at once across all available CPUs.
-A shared EmbedderActor per node loads SentenceTransformer once instead of
-once per trial.
-
-The Gemini calls within each trial use the same proven sync google.genai SDK
-as safe_gemini_model.py — no aiohttp, no event-loop conflicts with Concordia's
-own internal asyncio concurrency.
+--------------------
+Each trial runs as a Ray remote task. A shared EmbedderActor per node
+loads SentenceTransformer once instead of once per trial.
+Gemini calls use the sync google.genai SDK — no aiohttp, no event-loop
+conflicts with Concordia's internal asyncio concurrency.
 
 Usage
 -----
-    # Local (auto-detects CPUs):
-    python run_parallel_ray.py --n_trials 100 --max_steps 20
+    # Single condition (100 trials):
+    python run_parallel_ray.py --condition control
+    python run_parallel_ray.py --condition weekly_log
 
-    # Multi-node (start Ray first, then pass the head address):
+    # All 7 conditions sequentially (700 trials total):
+    python run_parallel_ray.py --condition all
+
+    # Multi-node (start Ray head first):
     ray start --head --port 6379
-    python run_parallel_ray.py --address auto --n_trials 500
+    python run_parallel_ray.py --address auto --condition all
 
     # Tune concurrency to stay under Gemini RPM quota:
-    python run_parallel_ray.py --n_trials 100 --max_concurrent 16
+    python run_parallel_ray.py --max_concurrent 16
+
+Available conditions:
+    control  contribution_tracking  task_visibility  peer_evaluation
+    weekly_log  meaningful_feedback  agile  all
 """
 
 from __future__ import annotations
@@ -40,24 +51,19 @@ import ray
 from tqdm import tqdm
 
 # ---------------------------------------------------------------------------
-# Repo / package path setup (mirrors cs_group_project_sim.py)
+# Repo / package path setup
 # ---------------------------------------------------------------------------
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _LOCAL_CONCORDIA_PARENT = _REPO_ROOT / "concordia"
 if _LOCAL_CONCORDIA_PARENT.exists():
     sys.path.insert(0, str(_LOCAL_CONCORDIA_PARENT))
 
-from cs_group_project_sim import (
-    TRAIT_POOL_PATH,
-    build_simulation,
-    load_trait_pool,
-    sample_profiles,
-)
+from cs_group_project_sim import SIMULATION_GROUPS_PATH
+from interventions import REGISTRY, ALL_CONDITION_NAMES
 
 
 # ---------------------------------------------------------------------------
-# Sync Gemini model — identical logic to safe_gemini_model.py, self-contained
-# so Ray workers don't need to import from the simulations directory.
+# Gemini model (self-contained for Ray workers)
 # ---------------------------------------------------------------------------
 
 class _GeminiModel:
@@ -73,18 +79,13 @@ class _GeminiModel:
         max_retries: int = 8,
     ) -> None:
         from google import genai
-
         self.model_name = model_name
         self.temperature = temperature
         self.max_output_tokens = max_output_tokens
         self.max_retries = max_retries
-        api_key = api_key or os.environ["GEMINI_API_KEY"]
-        self.client = genai.Client(api_key=api_key)
+        self.client = genai.Client(api_key=api_key or os.environ["GEMINI_API_KEY"])
         self._call_times: list[float] = []
 
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
     def _extract_text(self, response: Any) -> str:
         text = getattr(response, "text", None)
         if isinstance(text, str) and text.strip():
@@ -100,8 +101,8 @@ class _GeminiModel:
                     texts.append(t.strip())
         if texts:
             return "\n".join(texts)
-        # Gemini safety filter: candidate present but empty content (no output tokens).
-        # Return a safe neutral fallback so Concordia can continue rather than crash.
+        # Safety filter or empty output — return neutral fallback so
+        # Concordia can continue rather than crash.
         for cand in candidates:
             finish = str(getattr(cand, "finish_reason", "")).upper()
             if finish in ("STOP", "SAFETY", "RECITATION", "OTHER", ""):
@@ -117,7 +118,7 @@ class _GeminiModel:
 
     @staticmethod
     def _sanitize_action_spec(text: str) -> str:
-        """Repair unescaped/mixed-escaped double quotes in call_to_action values."""
+        """Repair unescaped double quotes inside call_to_action JSON values."""
         prefix = '"call_to_action": "'
         start_idx = text.find(prefix)
         if start_idx == -1:
@@ -128,11 +129,8 @@ class _GeminiModel:
         if end_idx == -1 or end_idx <= value_start:
             return text
         raw_value = text[value_start:end_idx]
-        # Unescape any already-escaped quotes for a uniform baseline
         plain = raw_value.replace('\\"', '"')
-        # Strip control characters illegal in JSON strings
         plain = plain.replace('\n', ' ').replace('\r', ' ').replace('\t', ' ')
-        # Re-escape backslashes then double quotes cleanly
         clean = plain.replace('\\', '\\\\').replace('"', '\\"')
         return text[:value_start] + clean + text[end_idx:]
 
@@ -142,13 +140,11 @@ class _GeminiModel:
         if not m:
             return text
         candidate = m.group(0).strip()
-        # Fast path: already valid
         try:
             json.loads(candidate)
             return candidate
         except Exception:
             pass
-        # Repair path: fix unescaped quotes in call_to_action
         try:
             repaired = _GeminiModel._sanitize_action_spec(candidate)
             json.loads(repaired)
@@ -158,18 +154,16 @@ class _GeminiModel:
         return text
 
     def _call(self, contents: str, config: dict) -> Any:
-        from google.genai import types
         last_err: Exception | None = None
         for attempt in range(1, self.max_retries + 1):
             try:
-                _t0 = time.perf_counter()
+                t0 = time.perf_counter()
                 result = self.client.models.generate_content(
                     model=self.model_name,
                     contents=contents,
                     config=config,
                 )
-                _elapsed = time.perf_counter() - _t0
-                self._call_times.append(_elapsed)
+                self._call_times.append(time.perf_counter() - t0)
                 return result
             except Exception as e:
                 last_err = e
@@ -177,11 +171,10 @@ class _GeminiModel:
                     wait = min(2 ** attempt, 60)
                     print(f"[Gemini] attempt {attempt} failed: {e}. Retrying in {wait}s...")
                     time.sleep(wait)
-        raise RuntimeError(f"Gemini call failed after {self.max_retries} retries: {last_err}")
+        raise RuntimeError(
+            f"Gemini call failed after {self.max_retries} retries: {last_err}"
+        )
 
-    # ------------------------------------------------------------------
-    # Concordia-compatible public API
-    # ------------------------------------------------------------------
     def sample_text(
         self,
         prompt: str,
@@ -196,8 +189,7 @@ class _GeminiModel:
         **kwargs,
     ) -> str:
         out_tokens = max(
-            self.max_output_tokens if max_tokens is None else max_tokens,
-            2048,
+            self.max_output_tokens if max_tokens is None else max_tokens, 2048
         )
         config: dict = {
             "temperature": self.temperature if temperature is None else temperature,
@@ -209,8 +201,7 @@ class _GeminiModel:
         response = self._call(prompt, config)
         text = self._extract_text(response)
         text = self._strip_fences(text)
-        text = self._extract_json(text)
-        return text
+        return self._extract_json(text)
 
     def sample_choice(
         self,
@@ -246,7 +237,7 @@ class _GeminiModel:
 
 
 # ---------------------------------------------------------------------------
-# Ray actor: one SentenceTransformer per node, shared across tasks
+# Shared embedder actor — one SentenceTransformer per node
 # ---------------------------------------------------------------------------
 
 @ray.remote
@@ -262,144 +253,36 @@ class EmbedderActor:
 
 
 # ---------------------------------------------------------------------------
-# Ray remote task: one trial
-# ---------------------------------------------------------------------------
-
-@ray.remote(max_retries=2, retry_exceptions=True)
-def run_trial_ray(
-    trial_id: int,
-    seed: int,
-    n_agents: int,
-    max_steps: int,
-    profiles_path_str: str,
-    embedder_actor: ray.actor.ActorHandle,
-    condition: str = "control",
-) -> dict:
-    """Execute one simulation trial inside a Ray worker.
-
-    condition: "control" uses cs_group_project_sim,
-               "intervention" uses cs_group_project_sim_intervention.
-    """
-    # Re-add repo path in worker process
-    repo_root = Path(profiles_path_str).resolve().parents[3]
-    concordia_parent = repo_root / "concordia"
-    if concordia_parent.exists() and str(concordia_parent) not in sys.path:
-        sys.path.insert(0, str(concordia_parent))
-
-    try:
-        import importlib
-        if condition == "intervention":
-            sim_module = "cs_group_project_sim_intervention"
-        elif condition == "weeklylogs":
-            sim_module = "cs_group_project_sim_intervention_weeklylogs"
-        else:
-            sim_module = "cs_group_project_sim"
-        sim = importlib.import_module(sim_module)
-        build_simulation = sim.build_simulation
-        load_trait_pool = sim.load_trait_pool
-        sample_profiles = sim.sample_profiles
-
-        profiles = load_trait_pool(Path(profiles_path_str))
-        sampled_profiles = sample_profiles(profiles, n_agents, seed)
-
-        model = _GeminiModel(
-            model_name="gemini-2.5-flash",
-            api_key=os.environ["GEMINI_API_KEY"],
-        )
-
-        # Embedder via shared actor — track latency per call
-        _embed_times: list[float] = []
-        def embedder(text: str) -> list[float]:
-            _t0 = time.perf_counter()
-            result = ray.get(embedder_actor.embed.remote(text))
-            _embed_times.append(time.perf_counter() - _t0)
-            return result
-
-        sim = build_simulation(
-            sampled_profiles=sampled_profiles,
-            model=model,
-            embedder=embedder,
-            max_steps=max_steps,
-        )
-        _trial_start = time.perf_counter()
-        results = sim.play()
-        _trial_elapsed = time.perf_counter() - _trial_start
-
-        # --- Timing summary ---
-        _gemini_times = model._call_times
-        _n_gemini = len(_gemini_times)
-        _n_embed = len(_embed_times)
-        _gemini_total = sum(_gemini_times)
-        _embed_total = sum(_embed_times)
-        _gemini_avg = _gemini_total / _n_gemini if _n_gemini else 0
-        _embed_avg = _embed_total / _n_embed if _n_embed else 0
-        print(
-            f"[Trial {trial_id}] total={_trial_elapsed:.1f}s | "
-            f"gemini: {_n_gemini} calls, {_gemini_total:.1f}s total, {_gemini_avg:.2f}s avg | "
-            f"embedder: {_n_embed} calls, {_embed_total:.1f}s total, {_embed_avg:.3f}s avg | "
-            f"other: {max(0, _trial_elapsed - _gemini_total - _embed_total):.1f}s"
-        )
-
-        return {
-            "trial_id": trial_id,
-            "seed": seed,
-            "condition": condition,
-            "status": "success",
-            "profiles": [p["profile_id"] for p in sampled_profiles],
-            "timing": {
-                "trial_total_s": round(_trial_elapsed, 2),
-                "gemini_calls": _n_gemini,
-                "gemini_total_s": round(_gemini_total, 2),
-                "gemini_avg_s": round(_gemini_avg, 3),
-                "embed_calls": _n_embed,
-                "embed_total_s": round(_embed_total, 2),
-                "embed_avg_s": round(_embed_avg, 4),
-                "other_s": round(max(0, _trial_elapsed - _gemini_total - _embed_total), 2),
-            },
-            "results": _serialize(results),
-        }
-
-    except Exception as e:
-        return {
-            "trial_id": trial_id,
-            "seed": seed,
-            "status": "error",
-            "error": str(e),
-            "traceback": traceback.format_exc(),
-        }
-
-
-# ---------------------------------------------------------------------------
-# Serialization (same as original; duplicated here to avoid import issues
-# in workers that may not have the full sim module on PATH yet)
+# Log serialization
 # ---------------------------------------------------------------------------
 
 def _clean_action(summary: str) -> str:
-    """Strip Concordia scaffolding from the summary, leaving only the narrative."""
-    import re
     text = summary.strip()
-    # Remove "Step N course_staff --- " prefix
-    text = re.sub("^Step [0-9]+ [^ ]+ --- ", "", text)
-    # Remove any leading "Event: " repetitions
-    text = re.sub("^(Event: *)+", "", text)
+    text = re.sub(r"^Step [0-9]+ [^ ]+ --- ", "", text)
+    text = re.sub(r"^(Event: *)+", "", text)
     return text.strip()
 
 
-def _serialize(log, debug: bool = False) -> dict:
-    """Extract one clean record per agent action: step, agent name, and narrative."""
+def _serialize(log: Any) -> dict:
+    """
+    Extract two views from a Concordia SimulationLog:
+      - steps:            {step_number: [{agent, action}, ...]}
+      - actions_by_agent: {agent_name:  [{step, action}, ...]}
+    Only entity-type entries (actual agent actions) are included.
+    Each extraction is attempted independently so a single failure does
+    not discard the rest of the data.
+    """
     data: dict = {}
 
-    # Per-step timeline: one entry per agent action (entry_type == "entity")
     try:
         steps_out: dict[str, list] = {}
         for step in log.get_steps():
-            entries = log.get_entries_by_step(step)
             actions = []
-            for e in entries:
+            for e in log.get_entries_by_step(step):
                 v = vars(e) if hasattr(e, "__dict__") else {}
                 if v.get("entry_type") == "entity":
                     actions.append({
-                        "agent": v.get("entity_name"),
+                        "agent":  v.get("entity_name"),
                         "action": _clean_action(v.get("summary", "")),
                     })
             if actions:
@@ -408,18 +291,15 @@ def _serialize(log, debug: bool = False) -> dict:
     except Exception as e:
         data["steps_error"] = str(e)
 
-    # Same actions grouped by agent
     try:
-        names = log.get_entity_names()
         by_agent: dict[str, list] = {}
-        for name in names:
-            entries = log.get_entries_by_entity(name)
+        for name in log.get_entity_names():
             actions = []
-            for e in entries:
+            for e in log.get_entries_by_entity(name):
                 v = vars(e) if hasattr(e, "__dict__") else {}
                 if v.get("entry_type") == "entity":
                     actions.append({
-                        "step": v.get("step"),
+                        "step":   v.get("step"),
                         "action": _clean_action(v.get("summary", "")),
                     })
             if actions:
@@ -432,41 +312,260 @@ def _serialize(log, debug: bool = False) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Ray remote task — one trial
+# ---------------------------------------------------------------------------
+
+@ray.remote(max_retries=2, retry_exceptions=True)
+def run_trial_ray(
+    group_index: int,
+    max_steps: int,
+    groups_path_str: str,
+    embedder_actor: ray.actor.ActorHandle,
+    condition_name: str = "control",
+) -> dict:
+    """Execute one simulation trial inside a Ray worker process.
+
+    group_index identifies which of the 100 pre-sampled groups to use.
+    The same group_index is used for every condition, ensuring all
+    conditions are compared on identical agent compositions.
+    """
+    repo_root = Path(groups_path_str).resolve().parents[3]
+    concordia_parent = repo_root / "concordia"
+    if concordia_parent.exists() and str(concordia_parent) not in sys.path:
+        sys.path.insert(0, str(concordia_parent))
+
+    try:
+        from cs_group_project_sim import (
+            build_simulation,
+            load_simulation_groups,
+            get_group_agents,
+        )
+        from interventions import REGISTRY
+
+        condition   = REGISTRY[condition_name]
+        groups      = load_simulation_groups(Path(groups_path_str))
+        agents      = get_group_agents(groups, group_index)
+        group_id    = groups[group_index]["group_id"]
+
+        model = _GeminiModel(
+            model_name="gemini-2.5-flash",
+            api_key=os.environ["GEMINI_API_KEY"],
+        )
+
+        embed_times: list[float] = []
+        def embedder(text: str) -> list[float]:
+            t0 = time.perf_counter()
+            result = ray.get(embedder_actor.embed.remote(text))
+            embed_times.append(time.perf_counter() - t0)
+            return result
+
+        sim = build_simulation(
+            agents=agents,
+            model=model,
+            embedder=embedder,
+            max_steps=max_steps,
+            condition=condition,
+            group_id=group_id,
+        )
+        t_start = time.perf_counter()
+        results = sim.play()
+        trial_elapsed = time.perf_counter() - t_start
+
+        gemini_times = model._call_times
+        gemini_total = sum(gemini_times)
+        embed_total  = sum(embed_times)
+        n_gemini     = len(gemini_times)
+        n_embed      = len(embed_times)
+
+        print(
+            f"[{group_id} | {condition_name}] "
+            f"total={trial_elapsed:.1f}s | "
+            f"gemini: {n_gemini} calls, {gemini_total:.1f}s total, "
+            f"{gemini_total/n_gemini if n_gemini else 0:.2f}s avg | "
+            f"embedder: {n_embed} calls, {embed_total:.1f}s total"
+        )
+
+        return {
+            "group_index": group_index,
+            "group_id":    group_id,
+            "condition":   condition_name,
+            "status":      "success",
+            "profiles":    [a["profile_id"] for a in agents],
+            "timing": {
+                "trial_total_s":  round(trial_elapsed, 2),
+                "gemini_calls":   n_gemini,
+                "gemini_total_s": round(gemini_total, 2),
+                "gemini_avg_s":   round(gemini_total / n_gemini if n_gemini else 0, 3),
+                "embed_calls":    n_embed,
+                "embed_total_s":  round(embed_total, 2),
+                "embed_avg_s":    round(embed_total / n_embed if n_embed else 0, 4),
+                "other_s":        round(
+                    max(0, trial_elapsed - gemini_total - embed_total), 2
+                ),
+            },
+            "results": _serialize(results),
+        }
+
+    except Exception as e:
+        return {
+            "group_index": group_index,
+            "condition":   condition_name,
+            "status":      "error",
+            "error":       str(e),
+            "traceback":   traceback.format_exc(),
+        }
+
+
+# ---------------------------------------------------------------------------
+# Resume helpers
+# ---------------------------------------------------------------------------
+
+def load_completed_keys(output_path: Path) -> set[tuple[int, str]]:
+    """Return (group_index, condition) pairs already written to the output file."""
+    completed: set[tuple[int, str]] = set()
+    if not output_path.exists():
+        return completed
+    with open(output_path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rec = json.loads(line)
+                completed.add((rec["group_index"], rec.get("condition", "control")))
+            except Exception:
+                pass
+    return completed
+
+
+# ---------------------------------------------------------------------------
+# Core runner — one condition
+# ---------------------------------------------------------------------------
+
+def run_condition(
+    condition_name: str,
+    n_groups: int,
+    max_steps: int,
+    max_concurrent: int,
+    output_path: Path,
+    embedder_actors: list,
+    groups_path_str: str,
+) -> tuple[int, int]:
+    """Run all trials for one condition. Returns (n_ok, n_errors)."""
+    completed_keys = load_completed_keys(output_path)
+    pending = [
+        i for i in range(n_groups)
+        if (i, condition_name) not in completed_keys
+    ]
+
+    if not pending:
+        print(f"[{condition_name}] All {n_groups} trials already complete, skipping.")
+        return 0, 0
+
+    skipped = n_groups - len(pending)
+    if skipped:
+        print(f"[{condition_name}] Resuming — skipping {skipped} completed trials.")
+
+    ok = errors = 0
+    pending_iter = iter(pending)
+    in_flight: dict[ray.ObjectRef, int] = {}
+
+    def _submit_next() -> bool:
+        try:
+            i = next(pending_iter)
+        except StopIteration:
+            return False
+        actor = embedder_actors[i % len(embedder_actors)]
+        ref = run_trial_ray.remote(
+            group_index=i,
+            max_steps=max_steps,
+            groups_path_str=groups_path_str,
+            embedder_actor=actor,
+            condition_name=condition_name,
+        )
+        in_flight[ref] = i
+        return True
+
+    for _ in range(min(max_concurrent, len(pending))):
+        _submit_next()
+
+    with open(output_path, "a", encoding="utf-8") as out_f:
+        with tqdm(total=len(pending), unit="trial", desc=condition_name) as pbar:
+            while in_flight:
+                done, _ = ray.wait(list(in_flight.keys()), num_returns=1, timeout=5.0)
+                if not done:
+                    continue
+                ref = done[0]
+                in_flight.pop(ref)
+                result: dict = ray.get(ref)
+
+                out_f.write(json.dumps(result, default=str) + "\n")
+                out_f.flush()
+
+                if result["status"] == "error":
+                    errors += 1
+                    tqdm.write(
+                        f"[{result.get('group_id', result['group_index'])} | "
+                        f"{condition_name}] ERROR: {result['error']}"
+                    )
+                else:
+                    ok += 1
+
+                pbar.update(1)
+                pbar.set_postfix({"ok": ok, "err": errors, "in_flight": len(in_flight)})
+                _submit_next()
+
+    return ok, errors
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Parallelised CS group project simulations via Ray."
+        description="Parallelised CS group-project simulations via Ray.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument("--n_trials", type=int, default=100)
-    parser.add_argument("--n_agents", type=int, default=5)
-    parser.add_argument("--max_steps", type=int, default=20)
-    parser.add_argument("--base_seed", type=int, default=42)
-    parser.add_argument("--output", type=str, default="results/simulation_results.jsonl")
     parser.add_argument(
-        "--max_concurrent", type=int, default=32,
-        help="Max trials in-flight at once (tune to stay under Gemini RPM quota).",
+        "--condition",
+        type=str,
+        default="control",
+        choices=ALL_CONDITION_NAMES + ["all"],
+        help=(
+            "Condition to run. Pass 'all' to run every condition sequentially "
+            f"({', '.join(ALL_CONDITION_NAMES)})."
+        ),
+    )
+    parser.add_argument("--max_steps",      type=int, default=20)
+    parser.add_argument("--max_concurrent", type=int, default=32,
+        help="Max trials in-flight at once (tune to stay under Gemini RPM quota).")
+    parser.add_argument("--output", type=str,
+        default="results/simulation_results.json")
+    parser.add_argument(
+        "--groups_path", type=str, default="",
+        help="Override path to simulation_groups.json.",
     )
     parser.add_argument(
         "--address", type=str, default=None,
-        help="Ray cluster address (e.g. 'auto' or 'ray://host:10001'). "
-             "Omit to start a local cluster.",
+        help="Ray cluster address (e.g. 'auto'). Omit to start a local cluster.",
     )
-    parser.add_argument(
-        "--num_cpus", type=int, default=None,
-        help="CPUs for local Ray cluster. Defaults to all available.",
-    )
-    parser.add_argument(
-        "--embedder_replicas", type=int, default=1,
-        help="Number of EmbedderActor replicas (one per node is usually fine).",
-    )
-    parser.add_argument(
-        "--condition", type=str, default="control",
-        choices=["control", "intervention", "weeklylogs"],
-        help="'control' = base sim, 'intervention' = contribution tracking, 'weeklylogs' = weekly progress logs.",
-    )
+    parser.add_argument("--num_cpus", type=int, default=None,
+        help="CPUs for local Ray cluster. Defaults to all available.")
+    parser.add_argument("--embedder_replicas", type=int, default=1,
+        help="Number of EmbedderActor replicas (one per node is usually fine).")
     args = parser.parse_args()
+
+    conditions_to_run = (
+        ALL_CONDITION_NAMES if args.condition == "all" else [args.condition]
+    )
+    groups_path_str = args.groups_path or str(SIMULATION_GROUPS_PATH)
+    groups_path = Path(groups_path_str)
+
+    # Count groups in file to determine n_groups
+    with open(groups_path) as f:
+        n_groups = sum(1 for line in f if line.strip())
+    print(f"Loaded {n_groups} groups from {groups_path}")
 
     # ------------------------------------------------------------------
     # Init Ray
@@ -488,97 +587,38 @@ def main() -> None:
     ]
 
     # ------------------------------------------------------------------
-    # Resume support
+    # Output file
     # ------------------------------------------------------------------
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    completed_ids: set[int] = set()
-    if output_path.exists():
-        with open(output_path, encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    completed_ids.add(json.loads(line)["trial_id"])
-                except Exception:
-                    pass
-        if completed_ids:
-            print(f"Resuming — skipping {len(completed_ids)} already-completed trials.")
-
-    seeds = [args.base_seed + i for i in range(args.n_trials)]
-    pending = [i for i in range(args.n_trials) if i not in completed_ids]
-    if not pending:
-        print("All trials already complete.")
-        ray.shutdown()
-        return
-
-    print(f"Launching {len(pending)} trials (max {args.max_concurrent} in-flight)...")
-    print(f"Output: {output_path}\n")
-
     # ------------------------------------------------------------------
-    # Sliding-window submission: keep max_concurrent futures in-flight
+    # Run each condition
     # ------------------------------------------------------------------
-    profiles_path_str = str(TRAIT_POOL_PATH)
-    total = len(pending)
-    ok = errors = 0
-    pending_iter = iter(pending)
+    total_ok = total_errors = 0
 
-    # futures -> trial_id
-    in_flight: dict[ray.ObjectRef, int] = {}
+    for condition_name in conditions_to_run:
+        print(f"\n{'='*60}")
+        print(f"Condition : {REGISTRY[condition_name].label}")
+        print(f"Groups    : {n_groups}  |  Max concurrent: {args.max_concurrent}")
+        print(f"Output    : {output_path}")
+        print('='*60)
 
-    def _submit_next() -> bool:
-        try:
-            i = next(pending_iter)
-        except StopIteration:
-            return False
-        actor = embedder_actors[i % len(embedder_actors)]
-        ref = run_trial_ray.remote(
-            trial_id=i,
-            seed=seeds[i],
-            n_agents=args.n_agents,
+        ok, errors = run_condition(
+            condition_name=condition_name,
+            n_groups=n_groups,
             max_steps=args.max_steps,
-            profiles_path_str=profiles_path_str,
-            embedder_actor=actor,
-            condition=args.condition,
+            max_concurrent=args.max_concurrent,
+            output_path=output_path,
+            embedder_actors=embedder_actors,
+            groups_path_str=groups_path_str,
         )
-        in_flight[ref] = i
-        return True
+        total_ok     += ok
+        total_errors += errors
+        print(f"[{condition_name}] {ok} succeeded, {errors} failed.")
 
-    # Fill initial window
-    for _ in range(min(args.max_concurrent, total)):
-        _submit_next()
-
-    with open(output_path, "a", encoding="utf-8") as out_f:
-        with tqdm(total=total, unit="trial") as pbar:
-            while in_flight:
-                # Wait for any one to finish
-                done, _ = ray.wait(list(in_flight.keys()), num_returns=1, timeout=5.0)
-                if not done:
-                    continue
-
-                ref = done[0]
-                in_flight.pop(ref)
-                result: dict = ray.get(ref)
-
-                # Write immediately
-                out_f.write(json.dumps(result, default=str) + "\n")
-                out_f.flush()
-
-                if result["status"] == "error":
-                    errors += 1
-                    tqdm.write(f"[Trial {result['trial_id']}] ERROR: {result['error']}")
-                else:
-                    ok += 1
-
-                pbar.update(1)
-                pbar.set_postfix({"ok": ok, "err": errors, "in_flight": len(in_flight)})
-
-                # Refill window
-                _submit_next()
-
-    print(f"\nDone. {ok} succeeded, {errors} failed.")
+    print(f"\n{'='*60}")
+    print(f"All done. Total: {total_ok} succeeded, {total_errors} failed.")
     print(f"Results written to: {output_path}")
     ray.shutdown()
 
