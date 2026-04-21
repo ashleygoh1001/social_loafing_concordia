@@ -7,6 +7,7 @@ Usage:
     python ./results/plot_heatmap.py --input ./results/scores_100.csv --output heatmap_perceived_loafing_control.png --metric perceived_loafing
     python ./results/plot_heatmap.py --input ./results/scores_indiv_contrib.csv --output heatmap_perceived_loafing_indiv_contrib.png --metric perceived_loafing
     python ./results/plot_heatmap.py --input ./results/scores_task_visibility.csv --output heatmap_task_visibility_intervention.png --metric perceived_loafing
+    python ./results/plot_heatmap.py --input ./results/scores_peer_eval.csv --output heatmap_perceived_loafing_peer_eval.png --metric perceived_loafing
 """
 
 from __future__ import annotations
