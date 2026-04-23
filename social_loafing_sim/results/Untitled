@@ -8,8 +8,8 @@ Layout
 ------
   Rows   : group_001 … group_100 (sorted)
   Columns: Student_1 … Student_5 (sorted by number)
-  Cell   : mean PLS that student received from all peers in that trial.
-           Value printed on top of each cell.
+  Cell   : mean PLS that student received from all peers in that trial
+           PLS values are also printed on top of each cell.
 
 Usage
 -----
@@ -22,26 +22,31 @@ import os
 import re
 import sys
 
-import matplotlib
-matplotlib.use("Agg")  # non-interactive backend, no display needed
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 import numpy as np
 import pandas as pd
 
 
+# ---------------------------------------------------------------------------
+# Core plotting
+# ---------------------------------------------------------------------------
+
 def plot_heatmap(df, output_dir="."):
     """One heatmap per unique value of the 'file' column."""
     os.makedirs(output_dir, exist_ok=True)
 
-    cmap_name = "RdYlGn_r"   # red = high loafing, green = low
+    cmap = "RdYlGn_r"   # red = high loafing, green = low
     vmin, vmax = 1.0, 5.0
 
     for file_stem, fdf in df.groupby("file", sort=True):
         fdf = fdf.dropna(subset=["PLS"]).copy()
 
-        # Fixed columns: exactly Student_1 through Student_5
-        all_students = ["Student_1", "Student_2", "Student_3", "Student_4", "Student_5"]
+        # Student columns sorted by number (Student_1, Student_2, …)
+        all_students = sorted(
+            fdf["target"].unique(),
+            key=lambda s: int(re.search(r"\d+", s).group())
+        )
         groups = sorted(fdf["group_id"].unique())
 
         n_rows = len(groups)
@@ -56,82 +61,70 @@ def plot_heatmap(df, output_dir="."):
         )
         matrix = pivot.values.astype(float)
 
-        # Fixed cell size in inches — keeps total figure manageable
-        cell_h = 0.22   # inches per row
-        cell_w = 1.1    # inches per column
-        left_margin  = 1.4   # room for group labels
-        right_margin = 1.0   # room for colorbar
-        top_margin   = 1.2
-        bot_margin   = 0.4
-
-        fig_w = left_margin + n_cols * cell_w + right_margin
-        fig_h = top_margin  + n_rows * cell_h + bot_margin
-
-        # matplotlib default dpi=100; savefig uses dpi=150 below.
-        # Cap figure dimensions so the saved PNG stays under ~30 MP.
-        MAX_DPI = 150
-        MAX_PX  = 5000
-        if fig_w * MAX_DPI > MAX_PX:
-            fig_w = MAX_PX / MAX_DPI
-        if fig_h * MAX_DPI > MAX_PX:
-            fig_h = MAX_PX / MAX_DPI
+        # Figure sizing: tall enough for 100 rows to be legible
+        cell_h = 0.28
+        cell_w = 1.4
+        fig_h  = max(6, n_rows * cell_h + 2)
+        fig_w  = max(5, n_cols * cell_w + 2)
 
         fig, ax = plt.subplots(figsize=(fig_w, fig_h))
 
-        cmap_obj = plt.get_cmap(cmap_name)
-        norm     = mcolors.Normalize(vmin=vmin, vmax=vmax)
-
         im = ax.imshow(
-            matrix, cmap=cmap_obj, norm=norm,
+            matrix, cmap=cmap, vmin=vmin, vmax=vmax,
             aspect="auto", interpolation="nearest"
         )
 
-        # --- Cell annotations ---
+        # --- Annotate each cell with its PLS value ---
+        norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
+        cmap_obj = plt.get_cmap(cmap)
         for i in range(n_rows):
             for j in range(n_cols):
                 val = matrix[i, j]
                 if np.isnan(val):
                     continue
+                # Pick white or black text depending on cell brightness
                 rgba = cmap_obj(norm(val))
                 brightness = 0.299 * rgba[0] + 0.587 * rgba[1] + 0.114 * rgba[2]
-                txt_color  = "white" if brightness < 0.5 else "black"
+                txt_color = "white" if brightness < 0.5 else "black"
                 ax.text(
                     j, i, f"{val:.2f}",
                     ha="center", va="center",
-                    fontsize=5, color=txt_color, fontweight="bold",
-                    clip_on=True,
+                    fontsize=5.5, color=txt_color, fontweight="bold"
                 )
 
-        # X axis at top
+        # X axis: students at the top
         ax.set_xticks(range(n_cols))
-        ax.set_xticklabels(all_students, fontsize=9, rotation=30, ha="left")
+        ax.set_xticklabels(all_students, fontsize=10, rotation=30, ha="left")
         ax.xaxis.set_label_position("top")
         ax.xaxis.tick_top()
-        ax.set_xlabel("Student (target)", fontsize=10, labelpad=8)
+        ax.set_xlabel("Student (target)", fontsize=11, labelpad=8)
 
-        # Y axis
+        # Y axis: group labels
         ax.set_yticks(range(n_rows))
-        ax.set_yticklabels(groups, fontsize=6)
-        ax.set_ylabel("Trial", fontsize=10)
+        ax.set_yticklabels(groups, fontsize=7)
+        ax.set_ylabel("Trial", fontsize=11)
 
-        # Colorbar
-        cbar = plt.colorbar(im, ax=ax, fraction=0.03, pad=0.02)
-        cbar.set_label("Mean PLS  (1 = low loafing, 5 = high)", fontsize=8)
-        cbar.ax.tick_params(labelsize=7)
+        # Colour bar
+        cbar = plt.colorbar(im, ax=ax, fraction=0.02, pad=0.02)
+        cbar.set_label("Mean PLS received  (1 = low loafing, 5 = high)", fontsize=9)
 
         condition = fdf["condition"].iloc[0] if "condition" in fdf.columns else ""
         ax.set_title(
             f"Perceived Loafing — {file_stem}\n"
             f"condition: {condition}  |  {n_rows} trials",
-            fontsize=11, pad=16
+            fontsize=12, pad=18
         )
 
         plt.tight_layout()
         fname = os.path.join(output_dir, f"heatmap_{file_stem}.png")
-        plt.savefig(fname, dpi=150, bbox_inches="tight", pil_kwargs={"optimize": True})
-        plt.close(fig)
+        plt.savefig(fname, dpi=150, bbox_inches="tight")
+        plt.close()
         print(f"Saved: {fname}")
 
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
 
 def main():
     parser = argparse.ArgumentParser(
