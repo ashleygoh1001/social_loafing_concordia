@@ -3,7 +3,7 @@ generate_groups.py
 ------------------
 Reads trait_pool.yaml and samples 100 groups of 5 agents WITH replacement.
 Outputs:
-  - groups.json   – structured, easy to load in simulation code
+  - groups.jsonl  – one group per line, easy to load in simulation code
   - groups.csv    – flat table, one row per agent-slot
 """
 
@@ -14,7 +14,7 @@ import yaml
 import copy
 
 YAML_PATH   = "./configs/trait_pool.yaml"
-JSON_OUT    = "./configs/simulation_groups.json"
+JSONL_OUT   = "./configs/simulation_groups.jsonl"
 CSV_OUT     = "./configs/simulation_groups.csv"
 
 NUM_GROUPS  = 100
@@ -63,12 +63,13 @@ for g in range(1, NUM_GROUPS + 1):
 print(f"Generated {len(groups)} groups of {GROUP_SIZE} agents (with replacement).")
 
 
-# ── 3. Write JSON ─────────────────────────────────────────────────────────────
+# ── 3. Write JSONL ────────────────────────────────────────────────────────────
 
-with open(JSON_OUT, "w") as fh:
-    json.dump(groups, fh, indent=2)
+with open(JSONL_OUT, "w") as fh:
+    for group in groups:
+        fh.write(json.dumps(group) + "\n")
 
-print(f"JSON saved → {JSON_OUT}")
+print(f"JSONL saved → {JSONL_OUT}")
 
 
 # ── 4. Write CSV ──────────────────────────────────────────────────────────────
